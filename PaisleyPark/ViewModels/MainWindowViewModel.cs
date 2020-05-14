@@ -25,13 +25,12 @@ namespace PaisleyPark.ViewModels
 	{
 		public static IEventAggregator EventAggregator { get; private set; }
 		private NhaamaProcess GameProcess { get; set; }
-		private Definitions GameDefinitions { get; set; }
 		private BackgroundWorker Worker;
 		public static Memory GameMemory { get; set; } = new Memory();
 		public Settings UserSettings { get; set; }
 		public Preset CurrentPreset { get; set; }
-		public string WindowTitle { get; set; }
-		public bool IsServerStarted { get; set; }
+		public string WindowTitle { get; set; } = "Paisley Park";
+		public bool IsServerStarted { get; set; } = false;
 		public bool IsServerStopped { get => !IsServerStarted; }
 		private static readonly NLog.Logger logger = NLog.LogManager.GetCurrentClassLogger();
 		private NancyHost Host;
@@ -60,27 +59,60 @@ namespace PaisleyPark.ViewModels
 
 		public MainWindowViewModel(IEventAggregator ea)
 		{
+			// Test if the Event Aggregator is null.
+			if (ea == null)
+			{
+				MessageBox.Show("Event Aggregator is null, unable to start.", "Paisley Park", MessageBoxButton.OK, MessageBoxImage.Error);
+				logger.Error("Event Aggregator is null");
+				Application.Current.Shutdown();
+			}
+
+			// Set the security protocol, mainly for Windows 7 users.
+			ServicePointManager.SecurityProtocol = (ServicePointManager.SecurityProtocol & SecurityProtocolType.Ssl3) | (SecurityProtocolType.Tls | SecurityProtocolType.Tls11 | SecurityProtocolType.Tls12);
+
 			// Store reference to the event aggregator.
 			EventAggregator = ea;
 
 			logger.Info("--- PAISLEY PARK START ---");
-			logger.Info("Fetching update.");
 
 			// Deleting any old updater file.
 			if (File.Exists(".PPU.old"))
 				File.Delete(".PPU.old");
 
-			// Get the version from the assembly.
-			CurrentVersion = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
-			// Set window title.
-			WindowTitle = string.Format("Paisley Park {0}", CurrentVersion.VersionString());
+			try
+			{
+				// Get the version from the assembly.
+				CurrentVersion = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+				logger.Debug($"Current Version: {CurrentVersion}");
+
+				// Set window title.
+				WindowTitle = string.Format("Paisley Park {0}", CurrentVersion.VersionString());
+			}
+			catch (Exception ex)
+			{
+				logger.Error(ex, "Couldn't get the application version.");
+				MessageBox.Show("Couldn't get Paisley Park's version to set the title.", "Paisley Park", MessageBoxButton.OK, MessageBoxImage.Error);
+				WindowTitle = "Paisley Park";
+			}
 
 			// Fetch an update.
+			logger.Info("Fetching update...");
 			FetchUpdate();
 
 			// Load the settings file.
-			UserSettings = Settings.Load();
+			logger.Info("Loading settings...");
+			try
+			{
+				UserSettings = Settings.Load();
+			}
+			catch (Exception ex)
+			{
+				logger.Error(ex, "Error trying to load settings file.");
+				MessageBox.Show("Could not load your settings file!", "Paisley Park", MessageBoxButton.OK, MessageBoxImage.Error);
+				Application.Current.Shutdown();
+			}
 
+			logger.Debug("Setting up the events.");
 			// Subscribe to the waymark event from the REST server.
 			EventAggregator.GetEvent<WaymarkEvent>().Subscribe(waymarks =>
 			{
@@ -90,74 +122,118 @@ namespace PaisleyPark.ViewModels
 				WriteWaymark(waymarks.D, 3);
 				WriteWaymark(waymarks.One, 4);
 				WriteWaymark(waymarks.Two, 5);
+				WriteWaymark(waymarks.Three, 6);
+				WriteWaymark(waymarks.Four, 7);
 			});
 
-			// Subscribe to the load preset event from the REST server.
-			EventAggregator.GetEvent<LoadPresetEvent>().Subscribe(name =>
+			logger.Debug("Subscribing to Load Preset event.");
+			try
 			{
-				var preset = UserSettings.Presets.FirstOrDefault(x =>
-					string.Equals(x.Name, name, StringComparison.OrdinalIgnoreCase));
-
-				if (preset == null)
+				// Subscribe to the load preset event from the REST server.
+				var loadPresetEvent = EventAggregator.GetEvent<LoadPresetEvent>();
+				if (loadPresetEvent == null)
+					throw new Exception("Couldn't get LoadPresetEvent");
+				loadPresetEvent.Subscribe(name =>
 				{
-					logger.Info($"Unkown preset {name}.");
-					return;
-				}
+					var preset = UserSettings.Presets.FirstOrDefault(x =>
+						string.Equals(x.Name, name, StringComparison.OrdinalIgnoreCase));
 
-				WriteWaymark(preset.A, 0);
-				WriteWaymark(preset.B, 1);
-				WriteWaymark(preset.C, 2);
-				WriteWaymark(preset.D, 3);
-				WriteWaymark(preset.One, 4);
-				WriteWaymark(preset.Two, 5);
-			});
-
-			// Subscribe to the save preset event from the REST server.
-			EventAggregator.GetEvent<SavePresetEvent>().Subscribe(name =>
-			{
-				var preset = UserSettings.Presets.FirstOrDefault(x =>
-					string.Equals(x.Name, name, StringComparison.OrdinalIgnoreCase));
-
-				try
-				{
 					if (preset == null)
 					{
-						preset = new Preset();
-						Application.Current.Dispatcher.Invoke(() => UserSettings.Presets.Add(preset));
+						logger.Info($"Unkown preset {name}.");
+						return;
 					}
-				}
-				catch (Exception ex)
+
+					WriteWaymark(preset.A, 0);
+					WriteWaymark(preset.B, 1);
+					WriteWaymark(preset.C, 2);
+					WriteWaymark(preset.D, 3);
+					WriteWaymark(preset.One, 4);
+					WriteWaymark(preset.Two, 5);
+					WriteWaymark(preset.Three, 6);
+					WriteWaymark(preset.Four, 7);
+				});
+			}
+			catch (Exception ex)
+			{
+				logger.Error(ex, "Couldn't subscribe to LoadPresetEvent.");
+				MessageBox.Show("Couldn't subscribe to Load Preset event.", "Paisely Park", MessageBoxButton.OK, MessageBoxImage.Error);
+				Application.Current.Shutdown();
+			}
+
+			logger.Debug("Subscribing to Save Preset event.");
+			try
+			{
+				// Subscribe to the save preset event from the REST server.
+				var savePresetEvent = EventAggregator.GetEvent<SavePresetEvent>();
+				if (savePresetEvent == null)
+					throw new Exception("Couldn't get SavePresetEvent");
+				savePresetEvent.Subscribe(name =>
 				{
-					MessageBox.Show("Could not save the preset.", "Paisley Park", MessageBoxButton.OK, MessageBoxImage.Error);
-					logger.Error(ex, "Could not save preset");
-				}
+					var preset = UserSettings.Presets.FirstOrDefault(x =>
+						string.Equals(x.Name, name, StringComparison.OrdinalIgnoreCase));
 
-				preset.Name = name;
-				preset.A = GameMemory.A;
-				preset.B = GameMemory.B;
-				preset.C = GameMemory.C;
-				preset.D = GameMemory.D;
-				preset.One = GameMemory.One;
-				preset.Two = GameMemory.Two;
-				preset.MapID = GameMemory.MapID;
+					try
+					{
+						if (preset == null)
+						{
+							preset = new Preset();
+							Application.Current.Dispatcher.Invoke(() => UserSettings.Presets.Add(preset));
+						}
+					}
+					catch (Exception ex)
+					{
+						MessageBox.Show("Could not save the preset.", "Paisley Park", MessageBoxButton.OK, MessageBoxImage.Error);
+						logger.Error(ex, "Could not save preset");
+					}
 
-				Settings.Save(UserSettings);
-			});
+					preset.Name = name;
+					preset.A = GameMemory.A;
+					preset.B = GameMemory.B;
+					preset.C = GameMemory.C;
+					preset.D = GameMemory.D;
+					preset.One = GameMemory.One;
+					preset.Two = GameMemory.Two;
+					preset.Three = GameMemory.Three;
+					preset.Four = GameMemory.Four;
 
-			// Create the commands.
-			LoadPresetCommand = new DelegateCommand(LoadPreset);
-			ClosingCommand = new DelegateCommand(OnClose);
-			ManagePresetsCommand = new DelegateCommand(OnManagePresets);
-			StartServerCommand = new DelegateCommand(OnStartServer).ObservesCanExecute(() => IsServerStopped);
-			StopServerCommand = new DelegateCommand(OnStopServer).ObservesCanExecute(() => IsServerStarted);
-			DiscordCommand = new DelegateCommand(OnDiscord);
+					Settings.Save(UserSettings);
+				});
+			}
+			catch (Exception ex)
+			{
+				logger.Error(ex, "Couldn't subscribe to SavePresetEvent.");
+				MessageBox.Show("Couldn't subscribe to Save Preset event.", "Paisley Park", MessageBoxButton.OK, MessageBoxImage.Error);
+				Application.Current.Shutdown();
+			}
+
+			logger.Debug("Creating commands.");
+			try
+			{
+				// Create the commands.
+				LoadPresetCommand = new DelegateCommand(LoadPreset);
+				ClosingCommand = new DelegateCommand(OnClose);
+				ManagePresetsCommand = new DelegateCommand(OnManagePresets);
+				StartServerCommand = new DelegateCommand(OnStartServer).ObservesCanExecute(() => IsServerStopped);
+				StopServerCommand = new DelegateCommand(OnStopServer).ObservesCanExecute(() => IsServerStarted);
+				DiscordCommand = new DelegateCommand(OnDiscord);
+			}
+			catch (Exception ex)
+			{
+				logger.Error(ex, "Couldn't create a command.");
+				MessageBox.Show("Couldn't create commands.", "Paisley Park", MessageBoxButton.OK, MessageBoxImage.Error);
+				Application.Current.Shutdown();
+			}
 
 			// Listen for property changed.
 			UserSettings.PropertyChanged += OnPropertyChanged;
 
+			logger.Info("Initializing...");
 			// Prepare for new game launch.
 			if (!Initialize())
-				return;
+			{
+				Application.Current.Shutdown();
+			}
 		}
 
 		/// <summary>
@@ -166,13 +242,16 @@ namespace PaisleyPark.ViewModels
 		/// <returns>Successful initialization.</returns>
 		private bool Initialize()
 		{
+			logger.Info("Initializing Nhaama...");
 			// Initialize Nhaama.
 			if (!InitializeNhaama())
 				return false;
 
+			logger.Info("Injecting code...");
 			// Inject our code.
-			InjectCode();
+			// InjectCode();
 
+			logger.Info("Starting server...");
 			// Check autostart and start the HTTP server if it's true.
 			if (UserSettings.HTTPAutoStart)
 				OnStartServer();
@@ -194,32 +273,26 @@ namespace PaisleyPark.ViewModels
 			// Check the game version against what we have saved in settings.
 			if (UserSettings.LatestGameVersion != GameVersion)
 			{
-				logger.Info($"Latest version {GameVersion} does not match the latest game version in settings {UserSettings.LatestGameVersion}");
-
-				var result = MessageBox.Show("There are new offsets available from the web. Would you like to use these offsets?", "Paisley Park", MessageBoxButton.YesNo, MessageBoxImage.Question);
-				if (result == MessageBoxResult.Yes)
+				logger.Info($"Latest version {GameVersion} does not match the latest game version in settings {UserSettings.LatestGameVersion}. Downloading new ones.");
+				// Create client to fetch latest version of offsets.
+				try
 				{
-					logger.Info("User is downloading latest offsets.");
-					// Create client to fetch latest version of offsets.
-					try
+					using (var client = new WebClient())
 					{
-						using (var client = new WebClient())
-						{
-							// Form the URI for the game version's offsets file.
-							var uri = new Uri(OffsetUrl, $"{GameVersion}.json");
-							// Write the JSON to the disk overwriting the Offsets.json file used locally.
-							File.WriteAllText(Path.Combine(Environment.CurrentDirectory, "Offsets.json"), client.DownloadString(uri));
-							// Set the lateste version to the version downloaded.
-							UserSettings.LatestGameVersion = GameVersion;
-							// Save the settings.
-							Settings.Save(UserSettings);
-						}
+						// Form the URI for the game version's offsets file.
+						var uri = new Uri(OffsetUrl, $"{GameVersion}.json");
+						// Write the JSON to the disk overwriting the Offsets.json file used locally.
+						File.WriteAllText(Path.Combine(Environment.CurrentDirectory, "Offsets.json"), client.DownloadString(uri));
+						// Set the lateste version to the version downloaded.
+						UserSettings.LatestGameVersion = GameVersion;
+						// Save the settings.
+						Settings.Save(UserSettings);
 					}
-					catch (Exception ex)
-					{
-						MessageBox.Show("Couldn't fetch or save offsets from the server. Your offsets could be out of date, and if so, may cause the game to crash.", "Paisley Park", MessageBoxButton.OK, MessageBoxImage.Error);
-						logger.Error(ex, "Couldn't fetch or save offsets from the server!");
-					}
+				}
+				catch (WebException ex)
+				{
+					MessageBox.Show("Offsets were not found for your current version of the game.  This may cause unexpected problems and placing waymarks may not work.", "Paisley Park", MessageBoxButton.OK, MessageBoxImage.Error);
+					logger.Error(ex, "Couldn't fetch or save offsets from the server!");
 				}
 			}
 
@@ -306,8 +379,16 @@ namespace PaisleyPark.ViewModels
 			// When specific properties change we save them immediately.
 			if (e.PropertyName == "PlacementDelay" || e.PropertyName == "Port" || e.PropertyName == "HTTPAutoStart")
 			{
-				// Save the settings file.
-				Settings.Save(UserSettings);
+				try
+				{
+					// Save the settings file.
+					Settings.Save(UserSettings);
+				}
+				catch (Exception ex)
+				{
+					logger.Error(ex, "Couldn't save settings");
+					MessageBox.Show("Couldn't save settings!", "Paisley Park", MessageBoxButton.OK, MessageBoxImage.Error);
+				}
 			}
 		}
 
@@ -330,6 +411,13 @@ namespace PaisleyPark.ViewModels
 				// Get the Nhaama process from the first process that matches for XIV.
 				GameProcess = procs[0].GetNhaamaProcess();
 
+			if (GameProcess == null)
+			{
+				logger.Error("Couldn't get Nhaama process");
+				MessageBox.Show("Coult not get the Nhaama Process for FFXIV.", "Paisley Park", MessageBoxButton.OK, MessageBoxImage.Error);
+				return false;
+			}
+
 			// Enable raising events.
 			GameProcess.BaseProcess.EnableRaisingEvents = true;
 
@@ -345,23 +433,25 @@ namespace PaisleyPark.ViewModels
 				logger.Info("FFXIV Shutdown or Crashed!");
 
 				// Start the initialization process again.
-				Application.Current.Dispatcher.Invoke(() => { Initialize(); });
+				Application.Current.Dispatcher.Invoke(() => Initialize());
 			};
 
-			// Get FFXIV game folder.
-			var ffxiv_folder = Path.GetDirectoryName(GameProcess.BaseProcess.MainModule.FileName);
-			// Read the version file.
-			var gameVersion = File.ReadAllLines(Path.Combine(ffxiv_folder, "ffxivgame.ver"))[0];
+			// Initialize as an empty string.
+			string gameVersion = "";
+			string ffxiv_folder = "";
 
-			// Load in the definitions file.
 			try
 			{
-				GameDefinitions = Definitions.Get(GameProcess, gameVersion.ToString(), Game.GameType.Dx11);
+				// Get FFXIV game folder.
+				ffxiv_folder = Path.GetDirectoryName(GameProcess.BaseProcess.MainModule.FileName);
+				// Read the version file.
+				gameVersion = File.ReadAllLines(Path.Combine(ffxiv_folder, "ffxivgame.ver"))[0];
 			}
-			catch (Exception)
+			catch (Exception ex)
 			{
-				// Fallback to last known version.
-				GameDefinitions = Definitions.Get(GameProcess, "2019.08.21.0000.0000", Game.GameType.Dx11);
+				logger.Error(ex, $"There is an error getting your FFXIV game version. {ffxiv_folder}");
+				MessageBox.Show("There was a problem getting your game version, cannot start!", "Paisley Park", MessageBoxButton.OK, MessageBoxImage.Error);
+				Application.Current.Shutdown();
 			}
 
 			// Get offsets.
@@ -414,6 +504,7 @@ namespace PaisleyPark.ViewModels
 		/// <summary>
 		/// Injects code into the game.
 		/// </summary>
+		/*
 		private void InjectCode()
 		{
 			// Ensure process is valid.
@@ -435,7 +526,7 @@ namespace PaisleyPark.ViewModels
 				var ffxiv_dx11 = GameProcess.BaseProcess.MainModule.BaseAddress;
 				// Waymark function address.
 				// TODO: AoB!
-				// 48 89 6C 24 10 48 89 74 24 18 57 48 83 EC 30 8B EA 49 8B F0 48 8B F9 83 FA 06
+				// 48 89 74 24 20 57 48 83 EC 30 8B F2 48 8B F9 83 FA 08
 				var waymarkFunc = (ffxiv_dx11 + Offsets.WaymarkFunc).ToUint64();
 				// Waymark class instance. (?)
 				// 45 33 c0 8d 57 ff 48 8d 0d (lea rcx offset before call to function) 
@@ -497,7 +588,7 @@ namespace PaisleyPark.ViewModels
 				OnClose();
 				Application.Current.Shutdown();
 			}
-		}
+		}*/
 
 		/// <summary>
 		/// Worker loop for reading memory.
@@ -518,14 +609,12 @@ namespace PaisleyPark.ViewModels
 			var wayD = (ffxiv + Offsets.Waymarks + 0x60).ToUint64();
 			var wayOne = (ffxiv + Offsets.Waymarks + 0x80).ToUint64();
 			var wayTwo = (ffxiv + Offsets.Waymarks + 0xA0).ToUint64();
+			var wayThree = (ffxiv + Offsets.Waymarks + 0xC0).ToUint64();
+			var wayFour = (ffxiv + Offsets.Waymarks + 0xE0).ToUint64();
 
 			// Worker loop runs indefinitely.
 			while (true)
 			{
-				// Pointers for player position, start of the actor table (first actor in the table is you)
-				// NOTE: needs to be addressed in the loop because it changes dynamically.
-				var playerPosition = new Pointer(GameProcess, GameDefinitions.ActorTable + 0x8, 0xF0, 0x50);
-
 				// Supporting cancellation.
 				if (Worker.CancellationPending)
 					e.Cancel = true;
@@ -536,7 +625,7 @@ namespace PaisleyPark.ViewModels
 					X = GameProcess.ReadFloat(addr),
 					Y = GameProcess.ReadFloat(addr + 0x4),
 					Z = GameProcess.ReadFloat(addr + 0x8),
-					Active = GameProcess.ReadByte(addr + 0x10) == 1,
+					Active = GameProcess.ReadByte(addr + 0x1C) == 1,
 					ID = id
 				};
 
@@ -549,14 +638,8 @@ namespace PaisleyPark.ViewModels
 					GameMemory.D = ReadWaymark(wayD, WaymarkID.D);
 					GameMemory.One = ReadWaymark(wayOne, WaymarkID.One);
 					GameMemory.Two = ReadWaymark(wayTwo, WaymarkID.Two);
-
-					// Read the map ID.
-					GameMemory.MapID = GameProcess.ReadUInt32(new Pointer(GameProcess, 0x1AE6A88, 0x5C4));
-
-					// Read in player position.
-					GameMemory.PlayerX = GameProcess.ReadFloat(playerPosition);
-					GameMemory.PlayerY = GameProcess.ReadFloat(playerPosition + 0x4);
-					GameMemory.PlayerZ = GameProcess.ReadFloat(playerPosition + 0x8);
+					GameMemory.Three = ReadWaymark(wayThree, WaymarkID.Three);
+					GameMemory.Four = ReadWaymark(wayFour, WaymarkID.Four);
 
 					// Publish our event on the EventAggregator.
 					EventAggregator.GetEvent<GameMemoryUpdateEvent>().Publish(GameMemory);
@@ -581,6 +664,58 @@ namespace PaisleyPark.ViewModels
 			if (waymark == null)
 				return;
 
+			var wID = (id == -1 ? (byte)waymark.ID : id);
+
+			// Initialize pointers and addresses to the memory we're going to read.
+			var ffxiv = GameProcess.BaseProcess.MainModule.BaseAddress;
+
+			// pointers for waymark positions
+			var wayA = (ffxiv + Offsets.Waymarks + 0x00).ToUint64();
+			var wayB = (ffxiv + Offsets.Waymarks + 0x20).ToUint64();
+			var wayC = (ffxiv + Offsets.Waymarks + 0x40).ToUint64();
+			var wayD = (ffxiv + Offsets.Waymarks + 0x60).ToUint64();
+			var wayOne = (ffxiv + Offsets.Waymarks + 0x80).ToUint64();
+			var wayTwo = (ffxiv + Offsets.Waymarks + 0xA0).ToUint64();
+			var wayThree = (ffxiv + Offsets.Waymarks + 0xC0).ToUint64();
+			var wayFour = (ffxiv + Offsets.Waymarks + 0xE0).ToUint64();
+
+			if (UserSettings.LocalOnly)
+			{
+				ulong markAddr = 0;
+				if (wID == (int)WaymarkID.A)
+					markAddr = wayA;
+				else if (wID == (int)WaymarkID.B)
+					markAddr = wayB;
+				else if (wID == (int)WaymarkID.C)
+					markAddr = wayC;
+				else if (wID == (int)WaymarkID.D)
+					markAddr = wayD;
+				else if (wID == (int)WaymarkID.One)
+					markAddr = wayOne;
+				else if (wID == (int)WaymarkID.Two)
+					markAddr = wayTwo;
+				else if (wID == (int)WaymarkID.Three)
+					markAddr = wayThree;
+				else if (wID == (int)WaymarkID.Four)
+					markAddr = wayFour;
+
+				// Write the X, Y and Z coordinates
+				GameProcess.Write(markAddr, waymark.X);
+				GameProcess.Write(markAddr + 0x4, waymark.Y);
+				GameProcess.Write(markAddr + 0x8, waymark.Z);
+
+				GameProcess.Write(markAddr + 0x10, (int)(waymark.X * 1000));
+				GameProcess.Write(markAddr + 0x14, (int)(waymark.Y * 1000));
+				GameProcess.Write(markAddr + 0x18, (int)(waymark.Z * 1000));
+
+				// Write the active state
+				GameProcess.Write(markAddr + 0x1C, (byte)(waymark.Active ? 1 : 0));
+
+				// Return out of this function
+				return;
+			}
+
+			/*
 			// Write the X, Y and Z coordinates.
 			GameProcess.Write(_newmem, waymark.X);
 			GameProcess.Write(_newmem + 0x4, waymark.Y);
@@ -605,7 +740,7 @@ namespace PaisleyPark.ViewModels
 			Kernel32.WaitForSingleObject(threadHandle, unchecked((uint)-1));
 
 			// Close the thread handle.
-			Kernel32.CloseHandle(threadHandle);
+			Kernel32.CloseHandle(threadHandle);*/
 		}
 
 		/// <summary>
@@ -614,7 +749,7 @@ namespace PaisleyPark.ViewModels
 		private void LoadPreset()
 		{
 			// Ensure that our injection and newmem addresses are set.
-			if (_inject == 0 || _newmem == 0)
+			/*if (_inject == 0 || _newmem == 0)
 			{
 				MessageBox.Show(
 					"Code is not injected for placing waymarks!",
@@ -625,27 +760,17 @@ namespace PaisleyPark.ViewModels
 				logger.Error("Injection somehow failed yet wasn't caught by an earlier error. You should not see this!");
 				OnClose();
 				Application.Current.Shutdown();
+			}*/
+
+			if (!UserSettings.LocalOnly)
+			{
+				MessageBox.Show("This version of Paisley Park only supports Local Only mode.", "Paisley Park", MessageBoxButton.OK, MessageBoxImage.Exclamation);
+				return;
 			}
 
 			// Ensure we have a preset selected.
 			if (CurrentPreset == null)
 				return;
-
-			// Check if user coordinates are all 0.  This likely means that we're still loading into the zone.
-			if (GameMemory.PlayerX == 0 && GameMemory.PlayerY == 0 && GameMemory.PlayerZ == 0)
-			{
-				// Ask the user if they want to still place based on the XYZ being all 0.
-				var result = MessageBox.Show(
-					"There is a problem loading your current position, this may cause crashing. Are you sure you want to do this?",
-					"Paisley Park",
-					MessageBoxButton.YesNo,
-					MessageBoxImage.Warning
-				);
-
-				// If we didn't say yes then return.
-				if (result != MessageBoxResult.Yes)
-					return;
-			}
 
 			// Calls the waymark function for all our waymarks.
 			try
@@ -664,6 +789,8 @@ namespace PaisleyPark.ViewModels
 					WriteWaymark(CurrentPreset.D, 3);
 					WriteWaymark(CurrentPreset.One, 4);
 					WriteWaymark(CurrentPreset.Two, 5);
+					WriteWaymark(CurrentPreset.Three, 6);
+					WriteWaymark(CurrentPreset.Four, 7);
 				});
 
 				WaymarkThread.Start();

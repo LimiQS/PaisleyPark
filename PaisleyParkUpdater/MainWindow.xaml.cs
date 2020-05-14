@@ -27,12 +27,14 @@ namespace PaisleyParkUpdater
 
 			DataContext = this;
 
+			// Set the security protocol, mainly for Windows 7 users.
+			ServicePointManager.SecurityProtocol = (ServicePointManager.SecurityProtocol & SecurityProtocolType.Ssl3) | (SecurityProtocolType.Tls | SecurityProtocolType.Tls11 | SecurityProtocolType.Tls12);
+
 			// Initialize variable for the current PP version.
-			Version CurrentVersion;
 			var forceCheckUpdate = false;
 
 			// Get the current version of the application.
-			var result = Version.TryParse(FileVersionInfo.GetVersionInfo(Path.Combine(Environment.CurrentDirectory, "PaisleyPark.exe")).FileVersion, out CurrentVersion);
+			var result = Version.TryParse(FileVersionInfo.GetVersionInfo(Path.Combine(Environment.CurrentDirectory, "PaisleyPark.exe")).FileVersion, out Version CurrentVersion);
 			if (!result)
 			{
 				MessageBox.Show(
@@ -74,7 +76,7 @@ namespace PaisleyParkUpdater
 						}
 						else
 						{
-							MessageBox.Show("You're up to date!", "Paisley Park Updater", MessageBoxButton.OK, MessageBoxImage.Information);
+							// MessageBox.Show("You're up to date!", "Paisley Park Updater", MessageBoxButton.OK, MessageBoxImage.Information);
 							Application.Current.Shutdown();
 						}
 					}

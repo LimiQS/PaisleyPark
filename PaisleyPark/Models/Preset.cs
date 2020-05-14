@@ -13,11 +13,6 @@ namespace PaisleyPark.Models
 		public string Name { get; set; }
 
 		/// <summary>
-		/// Map ID of where this preset belongs.
-		/// </summary>
-		public uint MapID { get; set; }
-
-		/// <summary>
 		/// Waymark values for all of every waymark in the game.
 		/// </summary>
 		public Waymark A { get; set; }
@@ -26,6 +21,8 @@ namespace PaisleyPark.Models
 		public Waymark D { get; set; }
 		public Waymark One { get; set; }
 		public Waymark Two { get; set; }
+		public Waymark Three { get; set; }
+		public Waymark Four { get; set; }
 
 		/// <summary>
 		/// Property Changed event handler for this model.
